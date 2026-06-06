@@ -25,7 +25,7 @@ accounts that have **2FA** turned on.
 
 ---
 
-## How to install (about 5 minutes)
+## How to install (about 2 minutes)
 
 You'll load this as an "unpacked" extension in Chrome (or Brave/Edge).
 
@@ -35,7 +35,7 @@ You'll load this as an "unpacked" extension in Chrome (or Brave/Edge).
 
 2. **Load the extension in your browser**
    - Go to `chrome://extensions`
-   - Turn on **Developer mode** (top-right toggle OR bottom, depend on the browser)
+   - Turn on **Developer mode** (top-right toggle OR bottom left, depend on the browser)
    - Click **Load unpacked**
    - Select the project folder (wombat-recover2)
 
@@ -65,7 +65,7 @@ That's it — the extension is installed.
 
 | Chain | Key format | Import into |
 |-------|-----------|-------------|
-| WAX, EOS, Telos | `5...` (WIF) | Anchor, Wax Cloud Wallet, or any Antelope wallet |
+| WAX, EOS, Telos | `5...` (private_key) | Anchor, Wax Cloud Wallet, or any Antelope wallet |
 | Ethereum / Polygon / other EVM | `0x...` | MetaMask (the same key works on all EVM chains) |
 
 A ✔ next to a key means it was verified against your real on-chain account.
