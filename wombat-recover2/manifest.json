@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Wombat Key Recovery (on backup.getwombat.io)",
+  "version": "3.0",
+  "description": "Recover your own Wombat keys on backup.getwombat.io — works with X, Apple, Google, and 2FA.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://backup.getwombat.io/*",
+    "https://api.getwombat.io/*",
+    "https://www.googleapis.com/*",
+    "https://content.dropboxapi.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://backup.getwombat.io/*"],
+      "js": ["vendor/eosjs-ecc.min.js", "vendor/ethers.umd.min.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
