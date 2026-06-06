@@ -70,6 +70,8 @@ That's it — the extension is installed.
 
 A ✔ next to a key means it was verified against your real on-chain account.
 
+- Hedera is not supported by default, however if your need to recover it, open an issue or join discord and raise a ticket to get appropriate help (its recovrable also).
+
 ---
 
 ## After you recover your keys
