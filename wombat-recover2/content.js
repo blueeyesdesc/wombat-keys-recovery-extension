@@ -44,7 +44,7 @@ function antelopeKey(u8){
   throw new Error("no PrivateKey constructor");
 }
 function apiGet(path, idToken, mfa){
-  const headers={ Authorization:"Bearer "+idToken, "Version":"20200916" };
+  const headers={ Authorization:"Bearer "+idToken, "Version":"20220204" };
   if(mfa) headers["X-Wombat-MFA"]=mfa;
   return fetch(API+path,{headers});
 }
@@ -129,50 +129,109 @@ async function run(){
     const mfa = acct.isMFAActive ? (document.getElementById("wkr-mfa").value.trim()) : null;
     if(acct.isMFAActive && !mfa){ log("This account has 2FA — enter your code and retry."); return; }
 
-
-    let wallet = acct.wallet;
-    if(acct.isMFAActive){
-      const kr = await apiGet("/account", idToken, mfa);
-      log("re-fetch with 2FA:", kr.status);
-      if(kr.status===403) throw new Error("2FA code rejected — check it and retry.");
-      if(kr.status!==200) throw new Error("account refetch "+kr.status);
-      wallet = (await kr.json()).wallet;
-    }
-
-    const items = [];
-    for(const chain of Object.keys(wallet||{})){
-      for(const entry of (wallet[chain]||[])) items.push({ chain, entry });
-    }
-    if(!items.length) throw new Error("No wallet entries found on this account.");
-    log("chains with accounts:", items.map(i=>i.chain).join(", "));
-
-    const rows=[];
-    for(const {chain, entry} of items){
-      const r={ chain, account: entry.accountName||"", pub: entry.publicKey||entry.address||"" };
-      try{
-        if(entry.encryptedPrivateKey==null){ r.error="null (needs 2FA?)"; rows.push(r); continue; }
-        const pt=await decryptWithToken(tokenBytes, b64ToBytes(entry.encryptedPrivateKey));
-        const hex=hexOf(pt);
-        if(/ethereum|polygon|bsc|evm|avax|arbitrum|optimism|base|fantom|cronos|matic/i.test(chain) || entry.address){
-          r.import = "0x"+hex;
-          try{
-            if(window.ethers && window.ethers.Wallet) r.derived = new window.ethers.Wallet("0x"+hex).address;
-            else if(window.ethers && window.ethers.computeAddress) r.derived = window.ethers.computeAddress("0x"+hex);
-            else r.note = "ethers not loaded — key is correct, address not auto-derived";
-          }catch(e){ r.note = "address derive skipped: "+e.message; }
-        } else {
-          const pk=antelopeKey(pt); r.import=pk.toWif(); r.derived=pk.toPublic().toString();
+    let encryptedKeys = [];
+    
+    if (acct.isMFAActive) {
+      log("Fetching encrypted keys from /account/wallet/keys with 2FA...");
+      const keysResult = await apiGet("/account/wallet/keys", idToken, mfa);
+      log("Keys endpoint status:", keysResult.status);
+      
+      if (keysResult.status === 403) {
+        throw new Error("2FA code rejected — check your authenticator code and retry.");
+      }
+      if (keysResult.status !== 200) {
+        throw new Error(`Keys request failed (${keysResult.status}): ${await keysResult.text()}`);
+      }
+      
+      const keysResponse = await keysResult.json();
+      // Handle both response formats: direct array or { keys: [...] }
+      encryptedKeys = Array.isArray(keysResponse) ? keysResponse : (keysResponse.keys || []);
+      log(`Retrieved ${encryptedKeys.length} encrypted keys from /account/wallet/keys`);
+    } else {
+      // No MFA - build from wallet object
+      log("No MFA, extracting keys from wallet object...");
+      for (const chain of Object.keys(acct.wallet || {})) {
+        for (const entry of (acct.wallet[chain] || [])) {
+          encryptedKeys.push({
+            blockchain: chain,
+            accountName: entry.accountName,
+            publicKey: entry.publicKey || entry.address,
+            privateKey: entry.encryptedPrivateKey,
+            address: entry.address
+          });
         }
-        if(r.pub && r.derived){ r.match = r.pub.replace(/^0x/,'').toLowerCase()===r.derived.replace(/^0x/,'').toLowerCase(); }
-      }catch(e){ r.error="decrypt failed: "+e.message; }
+      }
+      log(`Extracted ${encryptedKeys.length} keys from wallet object`);
+    }
+
+    if (!encryptedKeys.length) {
+      throw new Error("No wallet keys found on this account.");
+    }
+
+    // Process and decrypt keys
+    const rows = [];
+    for (const key of encryptedKeys) {
+      const r = { 
+        chain: key.blockchain, 
+        account: key.accountName || key.account || "", 
+        pub: key.publicKey || key.address || "" 
+      };
+      
+      try {
+        if (key.privateKey == null) {
+          r.error = "null (gated / not backed up)";
+          rows.push(r);
+          continue;
+        }
+        
+        const pt = await decryptWithToken(tokenBytes, b64ToBytes(key.privateKey));
+        const hex = hexOf(pt);
+        
+        const isEvm = /ethereum|polygon|bsc|evm|avax|arbitrum|optimism|base|fantom|cronos|matic/i.test(key.blockchain);
+        
+        if (isEvm) {
+          r.import = "0x" + hex;
+          try {
+            if (window.ethers && window.ethers.Wallet) {
+              r.derived = new window.ethers.Wallet("0x" + hex).address;
+            } else if (window.ethers && window.ethers.computeAddress) {
+              r.derived = window.ethers.computeAddress("0x" + hex);
+            } else {
+              r.note = "ethers not loaded — key is correct, address not auto-derived";
+            }
+          } catch (e) {
+            r.note = "address derive skipped: " + e.message;
+          }
+        } else {
+          const pk = antelopeKey(pt);
+          r.import = pk.toWif();
+          r.derived = pk.toPublic().toString();
+        }
+        
+        if (r.pub && r.derived) {
+          const a = r.pub.replace(/^0x/, '').toLowerCase();
+          const b = r.derived.replace(/^0x/, '').toLowerCase();
+          r.match = (a === b);
+        }
+      } catch (e) {
+        r.error = "decrypt failed: " + e.message;
+      }
       rows.push(r);
     }
-    RESULTS=rows;
+    
+    RESULTS = rows;
     log("\n=== KEYS (keep private) ===");
-    rows.forEach(r=> log(`${r.chain}: ${r.error?("⚠ "+r.error):(r.import+(r.match===true?"  ✔":r.match===false?"  ✖":"")+(r.note?("  ("+r.note+")"):""))}`));
-    const dl=document.getElementById("wkr-dl"); dl.style.display="block"; dl.onclick=download;
-  }catch(e){ log("ERROR:", e.message); }
+    rows.forEach(r => log(`${r.chain}: ${r.error?("⚠ "+r.error):(r.import+(r.match===true?"  ✔":r.match===false?"  ✖":"")+(r.note?("  ("+r.note+")"):""))}`));
+    
+    const dl = document.getElementById("wkr-dl"); 
+    dl.style.display = "block"; 
+    dl.onclick = download;
+    
+  } catch(e){ 
+    log("ERROR:", e.message); 
+  }
 }
+
 function download(){
   const data = RESULTS.map(r=>({chain:r.chain,account:r.account,publicKey:r.pub,privateKey:r.error?null:r.import,verified:r.match??null}));
   const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
